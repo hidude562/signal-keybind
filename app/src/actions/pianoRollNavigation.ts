@@ -20,13 +20,49 @@ import { usePreviewNote } from "../hooks/usePreviewNote"
 import { useTrack } from "../hooks/useTrack"
 import { eventsInSelection, useSelectNote } from "./selection"
 
-// Move keyboard cursor by ±1 quantize step (A/D keys)
-export const useMoveCursor = () => {
-  const { setCursorTick } = usePianoRoll()
+const noteNameToSemitone: Record<string, number> = {
+  C: 0,
+  D: 2,
+  E: 4,
+  F: 5,
+  G: 7,
+  A: 9,
+  B: 11,
+}
+
+// Consolidated hook that shares dependencies across all navigation actions.
+// This avoids creating duplicate useTrack/usePianoRoll/useHistory/usePlayer/etc.
+// hook instances for each individual action, reducing total hook count significantly.
+export const usePianoRollNavigationActions = () => {
+  // === Shared dependencies (each called once) ===
+  const {
+    selectedTrackId,
+    setCursorTick,
+    setCursorNoteNumber,
+    setLastNavigatedNoteNumber,
+    setSelectedNoteIds,
+    setSelection,
+    setMouseMode,
+    setSelectionAnchorTick,
+  } = usePianoRoll()
+  const store = useStore()
+  const {
+    getEvents,
+    getEventById,
+    addEvent,
+    removeEvents,
+    updateEvents,
+  } = useTrack(selectedTrackId)
   const { setPosition } = usePlayer()
   const { quantizeUnit } = usePianoRollQuantizer()
+  const { pushHistory } = useHistory()
+  const selectNote = useSelectNote()
+  const { previewNoteOn } = usePreviewNote()
 
-  return useCallback(
+  // === Action callbacks ===
+
+  // Move keyboard cursor by ±1 quantize step (A/D keys)
+  const moveCursor = useCallback(
     (direction: 1 | -1) => {
       setCursorTick((prev: number) => {
         const next = Math.max(0, prev + direction * quantizeUnit)
@@ -36,19 +72,9 @@ export const useMoveCursor = () => {
     },
     [setCursorTick, setPosition, quantizeUnit],
   )
-}
 
-// Navigate to the nearest note at a different tick, choosing by pitch proximity (Left/Right)
-export const useSelectNoteByProximity = () => {
-  const { selectedTrackId, setCursorTick, setLastNavigatedNoteNumber } =
-    usePianoRoll()
-  const store = useStore()
-  const { getEvents } = useTrack(selectedTrackId)
-  const { setPosition } = usePlayer()
-  const selectNote = useSelectNote()
-  const { previewNoteOn } = usePreviewNote()
-
-  return useCallback(
+  // Navigate to the nearest note at a different tick, choosing by pitch proximity (Left/Right)
+  const selectNoteByProximity = useCallback(
     (direction: 1 | -1) => {
       const selectedNoteIds = store.get(selectedNoteIdsAtom)
       const lastNavigatedNoteNumber = store.get(lastNavigatedNoteNumberAtom)
@@ -125,19 +151,9 @@ export const useSelectNoteByProximity = () => {
       setLastNavigatedNoteNumber,
     ],
   )
-}
 
-// Cycle through notes at the same tick (Ctrl+Up/Ctrl+Down)
-export const useCycleSameTickNote = () => {
-  const { selectedTrackId, setLastNavigatedNoteNumber, setCursorTick } =
-    usePianoRoll()
-  const store = useStore()
-  const { getEvents } = useTrack(selectedTrackId)
-  const { setPosition } = usePlayer()
-  const selectNote = useSelectNote()
-  const { previewNoteOn } = usePreviewNote()
-
-  return useCallback(
+  // Cycle through notes at the same tick (Ctrl+Up/Ctrl+Down)
+  const cycleSameTickNote = useCallback(
     (direction: 1 | -1) => {
       const selectedNoteIds = store.get(selectedNoteIdsAtom)
       if (selectedNoteIds.length === 0) return
@@ -175,37 +191,11 @@ export const useCycleSameTickNote = () => {
       setPosition,
     ],
   )
-}
 
-// Input a note by letter key (C/D/E/F/G/A/B)
-// advance=true: move cursor forward by the note's duration after placing
-// advance=false (Shift+letter): place note at cursor without advancing
-export const useInputNoteByKey = () => {
-  const {
-    selectedTrackId,
-    setCursorTick,
-    setCursorNoteNumber,
-    setLastNavigatedNoteNumber,
-    setSelectedNoteIds,
-  } = usePianoRoll()
-  const store = useStore()
-  const { addEvent } = useTrack(selectedTrackId)
-  const { pushHistory } = useHistory()
-  const { quantizeUnit } = usePianoRollQuantizer()
-  const { previewNoteOn } = usePreviewNote()
-  const { setPosition } = usePlayer()
-
-  const noteNameToSemitone: Record<string, number> = {
-    C: 0,
-    D: 2,
-    E: 4,
-    F: 5,
-    G: 7,
-    A: 9,
-    B: 11,
-  }
-
-  return useCallback(
+  // Input a note by letter key (C/D/E/F/G/A/B)
+  // advance=true: move cursor forward by the note's duration after placing
+  // advance=false (Shift+letter): place note at cursor without advancing
+  const inputNoteByKey = useCallback(
     (noteName: string, advance: boolean = true) => {
       const semitone = noteNameToSemitone[noteName]
       if (semitone === undefined) return
@@ -238,7 +228,6 @@ export const useInputNoteByKey = () => {
       }
 
       if (advance) {
-        // Advance cursor by the placed note's duration
         const nextTick = cursorTick + duration
         setCursorTick(nextTick)
         setPosition(nextTick)
@@ -257,17 +246,9 @@ export const useInputNoteByKey = () => {
       setPosition,
     ],
   )
-}
 
-// Change duration of selected notes (Shift+Left/Right when notes selected)
-export const useChangeDuration = () => {
-  const { selectedTrackId } = usePianoRoll()
-  const store = useStore()
-  const { getEventById, updateEvent } = useTrack(selectedTrackId)
-  const { pushHistory } = useHistory()
-  const { quantizeUnit } = usePianoRollQuantizer()
-
-  return useCallback(
+  // Change duration of selected notes (Shift+Left/Right when notes selected)
+  const changeDuration = useCallback(
     (direction: 1 | -1) => {
       const selectedNoteIds = store.get(selectedNoteIdsAtom)
       if (selectedNoteIds.length === 0) return
@@ -275,43 +256,30 @@ export const useChangeDuration = () => {
       const minDuration = Math.max(1, Math.floor(quantizeUnit / 4))
       pushHistory()
 
+      const updates: { id: number; duration: number }[] = []
       for (const id of selectedNoteIds) {
         const event = getEventById(id)
         if (event && isNoteEvent(event)) {
-          const newDuration = Math.max(
-            minDuration,
-            event.duration + direction * quantizeUnit,
-          )
-          updateEvent(id, { duration: newDuration })
+          updates.push({
+            id,
+            duration: Math.max(
+              minDuration,
+              event.duration + direction * quantizeUnit,
+            ),
+          })
         }
       }
+      updateEvents(updates)
     },
-    [store, getEventById, updateEvent, pushHistory, quantizeUnit],
+    [store, getEventById, updateEvents, pushHistory, quantizeUnit],
   )
-}
 
-// Expand time selection when nothing is selected (Shift+Left/Right)
-// Switches to the built-in selection tool and creates/grows a selection
-export const useExpandSelection = () => {
-  const {
-    selectedTrackId,
-    setCursorTick,
-    setSelection,
-    setSelectedNoteIds,
-    setMouseMode,
-    setSelectionAnchorTick,
-  } = usePianoRoll()
-  const store = useStore()
-  const { getEvents } = useTrack(selectedTrackId)
-  const { quantizeUnit } = usePianoRollQuantizer()
-  const { setPosition } = usePlayer()
-
-  return useCallback(
+  // Expand time selection when nothing is selected (Shift+Left/Right)
+  const expandSelection = useCallback(
     (direction: 1 | -1) => {
       const cursorTick = store.get(cursorTickAtom)
       let anchor = store.get(selectionAnchorTickAtom)
 
-      // Switch to the selection tool so the selection rect renders
       setMouseMode("selection")
 
       if (anchor === null) {
@@ -323,14 +291,12 @@ export const useExpandSelection = () => {
       setCursorTick(newCursorTick)
       setPosition(newCursorTick)
 
-      // Build selection using Selection.fromPoints (full pitch range)
       const selection = Selection.fromPoints(
         { tick: anchor, noteNumber: MaxNoteNumber },
         { tick: newCursorTick, noteNumber: 0 },
       )
       setSelection(selection)
 
-      // Select notes within the selection range
       setSelectedNoteIds(
         eventsInSelection(getEvents(), selection).map((e) => e.id),
       )
@@ -347,25 +313,9 @@ export const useExpandSelection = () => {
       setPosition,
     ],
   )
-}
 
-// Delete selected notes and auto-select the previous note (Delete/Backspace)
-export const useDeleteAndSelectPrevious = () => {
-  const {
-    selectedTrackId,
-    setSelectedNoteIds,
-    setSelection,
-    setCursorTick,
-    setLastNavigatedNoteNumber,
-  } = usePianoRoll()
-  const store = useStore()
-  const { getEvents, removeEvents } = useTrack(selectedTrackId)
-  const { setPosition } = usePlayer()
-  const { pushHistory } = useHistory()
-  const selectNote = useSelectNote()
-  const { previewNoteOn } = usePreviewNote()
-
-  return useCallback(() => {
+  // Delete selected notes and auto-select the previous note (Delete/Backspace)
+  const deleteAndSelectPrevious = useCallback(() => {
     const selectedNoteIds = store.get(selectedNoteIdsAtom)
     const lastNavigatedNoteNumber = store.get(lastNavigatedNoteNumberAtom)
     if (selectedNoteIds.length === 0) return
@@ -376,6 +326,7 @@ export const useDeleteAndSelectPrevious = () => {
     let prevNote: NoteEvent | undefined
     if (selectedNote) {
       const referenceTick = selectedNote.tick
+      const selectedSet = new Set(selectedNoteIds)
 
       const uniqueTicks = [...new Set(allNotes.map((n) => n.tick))].sort(
         (a, b) => a - b,
@@ -384,27 +335,22 @@ export const useDeleteAndSelectPrevious = () => {
 
       if (currentTickIndex > 0) {
         const prevTick = uniqueTicks[currentTickIndex - 1]
-        const notesAtPrevTick = allNotes
-          .filter((n) => n.tick === prevTick)
-          .filter((n) => !selectedNoteIds.includes(n.id))
-
         let closestDistance = Infinity
-        for (const note of notesAtPrevTick) {
-          const dist = Math.abs(note.noteNumber - lastNavigatedNoteNumber)
-          if (dist < closestDistance) {
-            closestDistance = dist
-            prevNote = note
+        for (const note of allNotes) {
+          if (note.tick === prevTick && !selectedSet.has(note.id)) {
+            const dist = Math.abs(note.noteNumber - lastNavigatedNoteNumber)
+            if (dist < closestDistance) {
+              closestDistance = dist
+              prevNote = note
+            }
           }
         }
       }
 
       if (!prevNote) {
-        const sameTickNotes = allNotes
-          .filter((n) => n.tick === referenceTick)
-          .filter((n) => !selectedNoteIds.includes(n.id))
-        if (sameTickNotes.length > 0) {
-          let closestDistance = Infinity
-          for (const note of sameTickNotes) {
+        let closestDistance = Infinity
+        for (const note of allNotes) {
+          if (note.tick === referenceTick && !selectedSet.has(note.id)) {
             const dist = Math.abs(note.noteNumber - lastNavigatedNoteNumber)
             if (dist < closestDistance) {
               closestDistance = dist
@@ -441,38 +387,19 @@ export const useDeleteAndSelectPrevious = () => {
     setPosition,
     setLastNavigatedNoteNumber,
   ])
-}
 
-// Go to the beginning of the piece (Ctrl+Left when nothing selected)
-export const useGoToBeginning = () => {
-  const { setCursorTick, setSelectionAnchorTick } = usePianoRoll()
-  const { setPosition } = usePlayer()
-
-  return useCallback(() => {
+  // Go to the beginning of the piece (Ctrl+Left when nothing selected)
+  const goToBeginning = useCallback(() => {
     setCursorTick(0)
     setPosition(0)
     setSelectionAnchorTick(null)
   }, [setCursorTick, setPosition, setSelectionAnchorTick])
-}
 
-// Jump to the last (most recent) note in the track (Ctrl+Right)
-export const useGoToEnd = () => {
-  const {
-    selectedTrackId,
-    setCursorTick,
-    setLastNavigatedNoteNumber,
-    setSelectionAnchorTick,
-  } = usePianoRoll()
-  const { getEvents } = useTrack(selectedTrackId)
-  const { setPosition } = usePlayer()
-  const selectNote = useSelectNote()
-  const { previewNoteOn } = usePreviewNote()
-
-  return useCallback(() => {
+  // Jump to the last (most recent) note in the track (Ctrl+Right)
+  const goToEnd = useCallback(() => {
     const allNotes = getEvents().filter(isNoteEvent)
     if (allNotes.length === 0) return
 
-    // Find the note with the highest tick (last note in the piece)
     let lastNote = allNotes[0]
     for (const note of allNotes) {
       if (note.tick > lastNote.tick) {
@@ -495,18 +422,9 @@ export const useGoToEnd = () => {
     setLastNavigatedNoteNumber,
     setSelectionAnchorTick,
   ])
-}
 
-// Move selected notes by ±1 quantize step (Alt+Left/Right)
-export const useMoveSelectedNotes = () => {
-  const { selectedTrackId, setCursorTick } = usePianoRoll()
-  const store = useStore()
-  const { getEventById, updateEvent } = useTrack(selectedTrackId)
-  const { setPosition } = usePlayer()
-  const { pushHistory } = useHistory()
-  const { quantizeUnit } = usePianoRollQuantizer()
-
-  return useCallback(
+  // Move selected notes by ±1 quantize step (Alt+Left/Right)
+  const moveSelectedNotes = useCallback(
     (direction: 1 | -1) => {
       const selectedNoteIds = store.get(selectedNoteIdsAtom)
       if (selectedNoteIds.length === 0) return
@@ -515,13 +433,14 @@ export const useMoveSelectedNotes = () => {
 
       const delta = direction * quantizeUnit
 
+      const updates: { id: number; tick: number }[] = []
       for (const id of selectedNoteIds) {
         const event = getEventById(id)
         if (event && isNoteEvent(event)) {
-          const newTick = Math.max(0, event.tick + delta)
-          updateEvent(id, { tick: newTick })
+          updates.push({ id, tick: Math.max(0, event.tick + delta) })
         }
       }
+      updateEvents(updates)
 
       setCursorTick((prev: number) => {
         const next = Math.max(0, prev + delta)
@@ -532,16 +451,30 @@ export const useMoveSelectedNotes = () => {
     [
       store,
       getEventById,
-      updateEvent,
+      updateEvents,
       pushHistory,
       quantizeUnit,
       setCursorTick,
       setPosition,
     ],
   )
+
+  return {
+    moveCursor,
+    selectNoteByProximity,
+    cycleSameTickNote,
+    inputNoteByKey,
+    changeDuration,
+    expandSelection,
+    deleteAndSelectPrevious,
+    goToBeginning,
+    goToEnd,
+    moveSelectedNotes,
+  }
 }
 
-// Snap cursor to quantized floor (called on playback stop)
+// Snap cursor to quantized floor (called on playback stop) - kept separate
+// as it's used independently in PianoRoll.tsx
 export const useSnapCursorToQuantize = () => {
   const { setCursorTick } = usePianoRoll()
   const { setPosition } = usePlayer()

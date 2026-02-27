@@ -1,23 +1,14 @@
 import { useStore } from "jotai"
 import { useCallback, useMemo } from "react"
 import {
-  useChangeDuration,
   useCopySelection,
   useCutSelection,
-  useCycleSameTickNote,
-  useDeleteAndSelectPrevious,
   useDuplicateSelection,
-  useExpandSelection,
-  useGoToBeginning,
-  useGoToEnd,
-  useInputNoteByKey,
-  useMoveCursor,
-  useMoveSelectedNotes,
   usePasteSelection,
   useQuantizeSelectedNotes,
-  useSelectNoteByProximity,
   useTransposeSelection,
 } from "../actions"
+import { usePianoRollNavigationActions } from "../actions/pianoRollNavigation"
 import { useKeyboardShortcut } from "./useKeyboardShortcut"
 import {
   selectedNoteIdsAtom,
@@ -40,17 +31,19 @@ export const usePianoNotesKeyboardShortcut = () => {
   } = usePianoRoll()
   const store = useStore()
 
-  // Vim-style actions
-  const selectNoteByProximity = useSelectNoteByProximity()
-  const cycleSameTickNote = useCycleSameTickNote()
-  const inputNoteByKey = useInputNoteByKey()
-  const changeDuration = useChangeDuration()
-  const expandSelection = useExpandSelection()
-  const deleteAndSelectPrevious = useDeleteAndSelectPrevious()
-  const moveCursor = useMoveCursor()
-  const goToBeginning = useGoToBeginning()
-  const goToEnd = useGoToEnd()
-  const moveSelectedNotes = useMoveSelectedNotes()
+  // Single consolidated hook for all navigation actions (shared dependencies)
+  const {
+    selectNoteByProximity,
+    cycleSameTickNote,
+    inputNoteByKey,
+    changeDuration,
+    expandSelection,
+    deleteAndSelectPrevious,
+    moveCursor,
+    goToBeginning,
+    goToEnd,
+    moveSelectedNotes,
+  } = usePianoRollNavigationActions()
 
   const handleShiftRight = useCallback(() => {
     const selectionAnchorTick = store.get(selectionAnchorTickAtom)
@@ -229,10 +222,6 @@ export const usePianoNotesKeyboardShortcut = () => {
         run: handleAltLeft,
       },
 
-      // ─── Cursor movement (A/D override global rewind/forward) ───
-      { code: "KeyA", run: () => moveCursor(-1) },
-      { code: "KeyD", run: () => moveCursor(1) },
-
       // ─── Delete with auto-previous ───
       { code: "Delete", run: deleteAndSelectPrevious },
       { code: "Backspace", run: deleteAndSelectPrevious },
@@ -257,7 +246,6 @@ export const usePianoNotesKeyboardShortcut = () => {
       handleShiftLeft,
       handleAltRight,
       handleAltLeft,
-      moveCursor,
       deleteAndSelectPrevious,
       copySelection,
       pasteSelection,
